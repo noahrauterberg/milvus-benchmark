@@ -69,7 +69,7 @@ func (r DataReader) GetDataSet() ([]DataRow, error) {
 }
 
 func (r DataReader) ReadDataRows() ([]DataRow, error) {
-	gobFile, err := os.Open("data-rows.gob")
+	gobFile, err := os.Open(outputPath("data-rows.gob"))
 	if err != nil {
 		return nil, err
 	}

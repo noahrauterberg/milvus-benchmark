@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -16,15 +17,29 @@ type Logger struct {
 }
 
 const (
-	basePath = "log"
+	basePath  = "log"
+	outputDir = "out"
 	// CSV format for logging queries
 	jobFormat     = "timestamp,jobId,isUserSession,sessionId,step,queryVector,topResultIds,latencyMs,schedulingDelayMs\n"
 	sessionFormat = "timestamp,sessionId,numSteps,totalDurationMs,schedulingDelayMs\n"
 )
 
+func ensureOutputDir() error {
+	return os.Mkdir(outputDir, 0755)
+}
+
+// outputPath prefixes the output directory to create a full file path.
+func outputPath(filename string) string {
+	return filepath.Join(outputDir, filename)
+}
+
 func NewLogger(prefix string) (*Logger, error) {
+	if err := ensureOutputDir(); err != nil {
+		return nil, err
+	}
+
 	logFile, err := os.OpenFile(
-		fmt.Sprintf("%s-%s.txt", prefix, basePath),
+		outputPath(fmt.Sprintf("%s-%s.txt", prefix, basePath)),
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
 		0644,
 	)
@@ -32,7 +47,7 @@ func NewLogger(prefix string) (*Logger, error) {
 		return nil, err
 	}
 	jobFile, err := os.OpenFile(
-		fmt.Sprintf("%s-jobs.csv", prefix),
+		outputPath(fmt.Sprintf("%s-jobs.csv", prefix)),
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
 		0644,
 	)
@@ -40,7 +55,7 @@ func NewLogger(prefix string) (*Logger, error) {
 		return nil, err
 	}
 	sessionFile, err := os.OpenFile(
-		fmt.Sprintf("%s-%s-session.csv", prefix, basePath),
+		outputPath(fmt.Sprintf("%s-%s-session.csv", prefix, basePath)),
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
 		0644,
 	)
@@ -99,7 +114,7 @@ func (l *Logger) LogSession(session *UserSession) {
 }
 
 func (l *Logger) LogDataRows(data []DataRow) error {
-	gobFile, err := os.Create("data-rows.gob")
+	gobFile, err := os.Create(outputPath("data-rows.gob"))
 	if err != nil {
 		return err
 	}
@@ -110,7 +125,7 @@ func (l *Logger) LogDataRows(data []DataRow) error {
 }
 
 func (l *Logger) LogEnhancedResults(results []EnhancedJobResult) error {
-	return parquet.WriteFile("enhanced-results.parquet", results)
+	return parquet.WriteFile(outputPath("enhanced-results.parquet"), results)
 }
 
 func (l *Logger) Close() {
