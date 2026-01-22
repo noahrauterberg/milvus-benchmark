@@ -35,8 +35,9 @@ resource "google_compute_instance" "milvus_vm" {
     sudo systemctl enable docker
     sudo systemctl start docker
 
-  touch monitoring.sh
-    cat > monitoring.sh <<- EOF
+    touch monitoring.sh
+    cat > monitoring.sh <<-'EOF'
+      #!/bin/bash
       pid=$(pidof milvus)
       while true; do
         ts=$(date +%s)
@@ -46,6 +47,8 @@ resource "google_compute_instance" "milvus_vm" {
         sleep 1
       done
     EOF
+    chmod +x monitoring.sh
+    echo "timestamp,rss,cpu" > milvus_metrics.csv
 
     sudo mkdir -p /opt/milvus/
     cd /opt/milvus
