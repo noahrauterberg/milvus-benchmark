@@ -301,7 +301,7 @@ func (us *UserSession) Execute(
 				k,
 				[]entity.Vector{entity.FloatVector(queryVector)},
 			).WithANNSField(vecFieldName).
-		WithOutputFields(vecFieldName),
+				WithOutputFields(vecFieldName),
 		)
 		if err != nil {
 			us.Latency = time.Since(start)

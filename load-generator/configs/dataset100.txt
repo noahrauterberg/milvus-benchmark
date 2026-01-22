@@ -1,0 +1,2 @@
+dataFile = ./glove/glove-100.txt
+dim = 100

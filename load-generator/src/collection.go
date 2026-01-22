@@ -12,6 +12,8 @@ func Collection(datasource DataSource, jobs []Job, sessions []UserSession) error
 	if err != nil {
 		return err
 	}
+	defer logger.Close()
+
 	rows, err := datasource.ReadDataRows()
 	if err != nil {
 		return err

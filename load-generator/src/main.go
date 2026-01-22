@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
@@ -62,13 +64,11 @@ var config Config = Config{
 	idFieldName:         "id",
 	vecFieldName:        "vector",
 	fieldName:           "word",
-	dim:                 50,
 	concurrency:         50,
 	ef:                  400, // how many neighbors to evaluate during the search
 	k:                   10,  // number of results returned from the query
 	insertBatchSize:     1000,
 	numberWarmupQueries: 5000,
-	dataFile:            "./glove/glove.txt",
 	jobGenParams: JobGenerationParameters{
 		workloadStdDev:    7.5,
 		workloadMean:      0.0,
@@ -81,19 +81,51 @@ var config Config = Config{
 		jobProbability:    0.7,
 	},
 	indexParameters: ConstructionIndexParameters{
-		distanceMetric: "L2", // euclidean distance
-		M:              30,   // maximum number of edges in the index graph
-		efConstruction: 360,  // how many candidates to consier
+		distanceMetric: "L2", // euclidean distance (constant)
 	},
 }
 
+// validDatasetIDs defines the allowed dataset configuration IDs
+var validDatasetIDs = map[int]bool{50: true, 100: true, 200: true}
+
+// parseArgs parses and validates CLI arguments for config ID and dataset ID
+func parseArgs() (configId int, dimId int, err error) {
+	if len(os.Args) != 3 {
+		return 0, 0, fmt.Errorf("usage: %s <config_id> <dataset_id>\n  config_id:  index configuration number (1-3)\n  dataset_id: dataset dimensionality (50, 100, 200)", os.Args[0])
+	}
+
+	configId, err = strconv.Atoi(os.Args[1])
+	if err != nil || configId < 1 || configId > 3 {
+		return 0, 0, fmt.Errorf("invalid config_id: must be a number between 1 and 3")
+	}
+	dimId, err = strconv.Atoi(os.Args[2])
+	if err != nil || !validDatasetIDs[dimId] {
+		return 0, 0, fmt.Errorf("invalid dimensionality: must be one of [50, 100, 200]")
+	}
+	return configId, dimId, nil
+}
+
 func main() {
+	/* Parse CLI arguments and load configurations */
+	configId, dimId, err := parseArgs()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	err = LoadIndexConfig(configId, &config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load index configuration: %v\n", err)
+		os.Exit(1)
+	}
+	SetOutputDir(fmt.Sprintf("output-config%d-dim%d", configId, dimId))
+
+	/* Initialize Benchmark */
 	logger, err := NewLogger("main")
 	if err != nil {
 		panic(err)
 	}
 	defer logger.Close()
-	logger.Logf("Benchmark started with config: %+v", config)
+	logger.Logf("Benchmark started with config Id %d, dataset ID %d: %+v", configId, dimId, config)
 
 	ctx := context.Background()
 	logger.Logf("Connecting to Milvus at %s...", config.milvusAddr)

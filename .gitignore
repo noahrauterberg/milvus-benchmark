@@ -1,7 +1,7 @@
 .DS_Store
 milvus/
 glove/
-out/
+out*
 
 *ssh
 *.pub
@@ -9,6 +9,7 @@ id_rsa
 
 *.zip
 *.txt
+!load-generator/configs/*.txt
 *.csv
 
 .terraform/

@@ -17,12 +17,24 @@ type Logger struct {
 }
 
 const (
-	basePath  = "log"
-	outputDir = "out"
+	basePath = "log"
 	// CSV format for logging queries
 	jobFormat     = "timestamp,jobId,isUserSession,sessionId,step,queryVector,topResultIds,latencyMus,schedulingDelayMus\n"
 	sessionFormat = "timestamp,sessionId,numSteps,totalDurationMus,schedulingDelayMus\n"
 )
+
+// outputDir holds the current output directory, set by SetOutputDir
+var outputDir = "output"
+
+// SetOutputDir sets the output directory for all log files
+func SetOutputDir(dir string) {
+	outputDir = dir
+}
+
+// GetOutputDir returns the current output directory
+func GetOutputDir() string {
+	return outputDir
+}
 
 func ensureOutputDir() error {
 	err := os.Mkdir(outputDir, 0755)
