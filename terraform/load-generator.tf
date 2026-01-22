@@ -40,10 +40,11 @@ resource "google_compute_instance" "load_generator_vm" {
     
     GLOVE_ZIP_FILE="glove.zip"
     GLOVE_FILE="glove.txt"
+    GLOVE_DIR="/opt/benchmark/glove"
 
     curl -L $GLOVE_URL -o $GLOVE_ZIP_FILE
-    unzip $GLOVE_ZIP_FILE -d glove/
-    mv glove/*.txt glove/$GLOVE_FILE
+    unzip $GLOVE_ZIP_FILE -d $GLOVE_DIR
+    mv $GLOVE_DIR/*.txt $GLOVE_DIR/$GLOVE_FILE
 
     sudo add-apt-repository -y ppa:longsleep/golang-backports
     sudo apt-get update

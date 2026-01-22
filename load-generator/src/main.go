@@ -68,7 +68,7 @@ var config Config = Config{
 	k:                   10,  // number of results returned from the query
 	insertBatchSize:     1000,
 	numberWarmupQueries: 5000,
-	dataFile:            "../glove/glove.txt",
+	dataFile:            "./glove/glove.txt",
 	jobGenParams: JobGenerationParameters{
 		workloadStdDev:    7.5,
 		workloadMean:      0.0,

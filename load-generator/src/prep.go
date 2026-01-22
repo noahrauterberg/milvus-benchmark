@@ -72,7 +72,7 @@ func InsertDataset(
 		for _, r := range data[start:end] {
 			rowMap := map[string]any{
 				idFieldName:  r.Id,
-				vecFieldName: r.Vector,
+				vecFieldName: []float32(r.Vector),
 				fieldName:    r.Word,
 			}
 			rows = append(rows, rowMap)
@@ -151,7 +151,7 @@ func Prepare(
 	}
 
 	/* Insert Dataset */
-	InsertDataset(
+	err = InsertDataset(
 		c,
 		ctx,
 		collection,
@@ -163,6 +163,15 @@ func Prepare(
 		insertBatchSize,
 		logger,
 	)
+	if err != nil {
+		return err
+	}
+
+	/* Flush data before indexing */
+	err = flushCollection(c, ctx, collection, logger)
+	if err != nil {
+		return err
+	}
 
 	/* Create the index */
 	indexStartTime := time.Now()

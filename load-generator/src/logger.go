@@ -20,12 +20,16 @@ const (
 	basePath  = "log"
 	outputDir = "out"
 	// CSV format for logging queries
-	jobFormat     = "timestamp,jobId,isUserSession,sessionId,step,queryVector,topResultIds,latencyMs,schedulingDelayMs\n"
-	sessionFormat = "timestamp,sessionId,numSteps,totalDurationMs,schedulingDelayMs\n"
+	jobFormat     = "timestamp,jobId,isUserSession,sessionId,step,queryVector,topResultIds,latencyMus,schedulingDelayMus\n"
+	sessionFormat = "timestamp,sessionId,numSteps,totalDurationMus,schedulingDelayMus\n"
 )
 
 func ensureOutputDir() error {
-	return os.Mkdir(outputDir, 0755)
+	err := os.Mkdir(outputDir, 0755)
+	if err != nil && !os.IsExist(err) {
+		return err
+	}
+	return nil
 }
 
 // outputPath prefixes the output directory to create a full file path.
@@ -80,7 +84,9 @@ func (l *Logger) Log(msg string) {
 }
 
 func (l *Logger) Logf(format string, args ...any) {
-	l.Log(fmt.Sprintf(format, args...))
+	logEntry := fmt.Sprintf(format, args...)
+	l.Log(logEntry)
+	fmt.Println(logEntry)
 }
 
 // LogJob logs the details of a Job in CSV format.
@@ -95,8 +101,8 @@ func (l *Logger) LogJob(job *Job, sessionId int, step int) {
 		step,
 		job.QueryVector,
 		job.ResultIds,
-		job.Latency.Milliseconds(),
-		job.SchedulingDelay.Milliseconds(),
+		job.Latency.Microseconds(),
+		job.SchedulingDelay.Microseconds(),
 	)
 	l.jobLogFile.WriteString(logEntry)
 }
@@ -107,8 +113,8 @@ func (l *Logger) LogSession(session *UserSession) {
 		session.StartTimestamp.Format(time.DateTime),
 		session.SessionId,
 		len(session.jobs),
-		session.Latency.Milliseconds(),
-		session.SchedulingDelay.Milliseconds(),
+		session.Latency.Microseconds(),
+		session.SchedulingDelay.Microseconds(),
 	)
 	l.sessionLogFile.WriteString(logEntry)
 }

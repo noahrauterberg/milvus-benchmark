@@ -187,7 +187,16 @@ func ExecuteWorkloadPoisson(
 
 // Workload is the interface for executable benchmark work units (i.e. Jobs and UserSessions).
 type Workload interface {
-	Execute(ctx context.Context, c *milvusclient.Client, collection string, vecFieldName string, dim int, k int, logger *Logger, schedulingDelay time.Duration) (Workload, error)
+	Execute(
+		ctx context.Context,
+		c *milvusclient.Client,
+		collection string,
+		vecFieldName string,
+		dim int,
+		k int,
+		logger *Logger,
+		schedulingDelay time.Duration,
+	) (Workload, error)
 }
 
 // Job is a single kNN search query
@@ -291,7 +300,8 @@ func (us *UserSession) Execute(
 				collection,
 				k,
 				[]entity.Vector{entity.FloatVector(queryVector)},
-			).WithANNSField(vecFieldName),
+			).WithANNSField(vecFieldName).
+		WithOutputFields(vecFieldName),
 		)
 		if err != nil {
 			us.Latency = time.Since(start)
@@ -308,6 +318,11 @@ func (us *UserSession) Execute(
 		for _, resultSet := range searchRes {
 			us.jobs[us.currentStep-1].ResultIds = resultSet.IDs.FieldData().GetScalars().GetLongData().Data
 			vectors := resultSet.GetColumn(vecFieldName)
+			if vectors == nil {
+				logger.Logf("No vector field '%s' in search result: %+v", vecFieldName, resultSet)
+				queryVector, hasNext = us.NextQuery(nil)
+				continue
+			}
 			// Don't ask why but this concatenates all the vectors so we must slice to get the first one
 			combinedVector := vectors.FieldData().GetVectors().GetFloatVector().Data
 			// TODO: prevent selecting the same vector every time
