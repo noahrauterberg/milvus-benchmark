@@ -117,6 +117,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to load index configuration: %v\n", err)
 		os.Exit(1)
 	}
+	err = LoadDimConfig(dimId, &config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load dataset configuration: %v\n", err)
+		os.Exit(1)
+	}
 	SetOutputDir(fmt.Sprintf("output-config%d-dim%d", configId, dimId))
 
 	/* Initialize Benchmark */
@@ -125,7 +130,7 @@ func main() {
 		panic(err)
 	}
 	defer logger.Close()
-	logger.Logf("Benchmark started with config Id %d, dataset ID %d: %+v", configId, dimId, config)
+	logger.Logf("Benchmark started with config Id %d, dataset dimensionality %d:\n%+v", configId, dimId, config)
 
 	ctx := context.Background()
 	logger.Logf("Connecting to Milvus at %s...", config.milvusAddr)
