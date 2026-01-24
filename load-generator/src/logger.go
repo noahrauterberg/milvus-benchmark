@@ -92,6 +92,7 @@ func NewLogger(prefix string) (*Logger, error) {
 func (l *Logger) Log(msg string) {
 	timestamp := time.Now().Format(time.DateTime)
 	logEntry := fmt.Sprintf("[%s] - %s\n", timestamp, msg)
+	fmt.Println(logEntry)
 	l.logFile.WriteString(logEntry)
 }
 

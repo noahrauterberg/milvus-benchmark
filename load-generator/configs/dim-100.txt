@@ -1,2 +1,2 @@
-dataFile = ./glove/glove-100.txt
+dataFile = ../../glove/glove-100.txt
 dim = 100

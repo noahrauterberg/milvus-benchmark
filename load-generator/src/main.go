@@ -136,8 +136,8 @@ func main() {
 	logger.Logf("Connecting to Milvus at %s...", config.milvusAddr)
 	c, err := milvusclient.New(ctx, &milvusclient.ClientConfig{
 		Address:  config.milvusAddr,
-		Username: "Milvus",
-		Password: "root",
+		Username: "root",
+		Password: "Milvus",
 	})
 	if err != nil {
 		panic(err)
