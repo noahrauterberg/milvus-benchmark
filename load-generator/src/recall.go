@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // EnhancedJobResult extends Job with the calculated recall metric.
@@ -112,7 +115,7 @@ func nearestNeighbors(query Vector, rawData []DataRow, k int) []int64 {
 func calculateRecall(queryVector Vector, resultIds []int64, rawData []DataRow) float64 {
 	// Avoid divide by zero
 	if len(resultIds) == 0 {
-		return 0.0
+		return -1.0
 	}
 
 	trueNeighbors := nearestNeighbors(queryVector, rawData, len(resultIds))
@@ -141,6 +144,27 @@ func EnhanceJobResults(rawData []DataRow, jobs []Job) []EnhancedJobResult {
 	jobChan := make(chan int, numJobs)
 	var wg sync.WaitGroup
 
+	// Progress tracking
+	var completedCount atomic.Int64
+	done := make(chan struct{})
+
+	// Progress logging goroutine - logs every 5 minutes
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				completed := completedCount.Load()
+				percent := float64(completed) / float64(numJobs) * 100
+				fmt.Printf("Recall calculation progress: %d / %d jobs completed (%.1f%%)\n",
+					completed, numJobs, percent)
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	for range numWorkers {
 		wg.Add(1)
 		go func() {
@@ -149,6 +173,7 @@ func EnhanceJobResults(rawData []DataRow, jobs []Job) []EnhancedJobResult {
 				job := jobs[idx]
 				recall := calculateRecall(job.QueryVector, job.ResultIds, rawData)
 				enhancedResults[idx] = EnhancedJobResult{Job: job, Recall: recall}
+				completedCount.Add(1)
 			}
 		}()
 	}
@@ -160,5 +185,8 @@ func EnhanceJobResults(rawData []DataRow, jobs []Job) []EnhancedJobResult {
 	close(jobChan)
 
 	wg.Wait()
+	close(done) // Stop progress logging goroutine
+
+	fmt.Printf("Recall calculation complete: %d / %d jobs processed\n", numJobs, numJobs)
 	return enhancedResults
 }

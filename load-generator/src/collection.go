@@ -2,7 +2,7 @@ package main
 
 func MapSessionsToJobs(sessions []UserSession) (jobs []Job) {
 	for _, session := range sessions {
-		jobs = append(jobs, session.jobs...)
+		jobs = append(jobs, session.Jobs...)
 	}
 	return
 }

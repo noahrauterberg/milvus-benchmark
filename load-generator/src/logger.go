@@ -125,8 +125,8 @@ func (l *Logger) LogSession(session *UserSession) {
 		"%s,%d,%d,%d,%d\n",
 		session.StartTimestamp.Format(time.DateTime),
 		session.SessionId,
-		len(session.jobs),
-		session.Latency.Microseconds(),
+		len(session.Jobs),
+		session.Duration.Microseconds(),
 		session.SchedulingDelay.Microseconds(),
 	)
 	l.sessionLogFile.WriteString(logEntry)

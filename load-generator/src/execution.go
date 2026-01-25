@@ -38,6 +38,7 @@ func ExecuteBenchmark(
 		jobGenParams,
 		dim,
 		arrivalSeed,
+		concurrency,
 	)
 
 	logger.Logf("Starting Benchmark with Poisson arrivals: targetQPS=%.2f, duration=%v, jobProbability=%.2f",

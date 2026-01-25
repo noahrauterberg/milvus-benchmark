@@ -52,6 +52,7 @@ const milvusPort = "19530"
 func getMilvusAddr() string {
 	ip := os.Getenv("MILVUS_IP")
 	if ip == "" {
+		fmt.Println("MILVUS_IP not set, defaulting to localhost")
 		ip = "localhost"
 	}
 	return ip + ":" + milvusPort
@@ -77,16 +78,16 @@ var config Config = Config{
 		minSessionLength:  5,
 		maxSessionLength:  50,
 		targetQPS:         100.0,
-		benchmarkDuration: 30 * time.Minute,
-		jobProbability:    0.7,
+		benchmarkDuration: 5 * time.Minute,
+		jobProbability:    0.8,
 	},
 	indexParameters: ConstructionIndexParameters{
 		distanceMetric: "L2", // euclidean distance (constant)
 	},
 }
 
-// validDatasetIDs defines the allowed dataset configuration IDs
-var validDatasetIDs = map[int]bool{50: true, 100: true, 200: true}
+// validDatasetIds defines the allowed dataset configuration IDs
+var validDatasetIds = map[int]bool{50: true, 100: true, 200: true}
 
 // parseArgs parses and validates CLI arguments for config ID and dataset ID
 func parseArgs() (configId int, dimId int, err error) {
@@ -99,7 +100,7 @@ func parseArgs() (configId int, dimId int, err error) {
 		return 0, 0, fmt.Errorf("invalid config_id: must be a number between 1 and 3")
 	}
 	dimId, err = strconv.Atoi(os.Args[2])
-	if err != nil || !validDatasetIDs[dimId] {
+	if err != nil || !validDatasetIds[dimId] {
 		return 0, 0, fmt.Errorf("invalid dimensionality: must be one of [50, 100, 200]")
 	}
 	return configId, dimId, nil

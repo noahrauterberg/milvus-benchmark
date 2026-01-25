@@ -17,26 +17,78 @@ import (
 * It generates workloads on-demand with exponentially distributed inter-arrival times.
  */
 type ArrivalController struct {
-	jobGenParams JobGenerationParameters
-	dim          int
-	gen          *rand.Rand
+	jobGenParams     JobGenerationParameters
+	dim              int // dim is not part of the JobGenerationParameters because it is used in many places
+	gen              *rand.Rand
+	continuationChan chan *UserSession
 
-	// Counters for ID generation (accessed only by arrival goroutine)
+	// Counters for Id generation
 	jobCounter     int
 	sessionCounter int
+}
+
+type TimedWorkload struct {
+	Work          Workload
+	ScheduledTime time.Time // Captures the wait time until a worker was able to pick up the work
+}
+
+// Workload is the interface for executable benchmark work units.
+type Workload interface {
+	Execute(
+		ctx context.Context,
+		c *milvusclient.Client,
+		collection string,
+		vecFieldName string,
+		dim int,
+		k int,
+		logger *Logger,
+		schedulingDelay time.Duration,
+	) (Workload, error)
+}
+
+// Job is a single kNN search query
+type Job struct {
+	Id              string // Unique identifier (for independent jobs: "J-{index}", for session jobs: "S-{sessionId}-{step}")
+	QueryVector     Vector
+	ResultIds       []int64
+	Latency         time.Duration
+	StartTimestamp  time.Time
+	SchedulingDelay time.Duration // Time between scheduled arrival and actual execution start
+}
+
+/**
+* UserSession simulates a somewhat realistic user behavior with sequential, dependent queries.
+* Each session starts with a random query vector, then subsequent queries are based on the top
+* result from the previous query plus a small random offset to simulate attention-based drift.
+*
+* Job Ids within a session are encoded as "S-{sessionId}-{stepIndex}".
+ */
+type UserSession struct {
+	SessionId       int
+	Jobs            []Job
+	StartTimestamp  time.Time
+	Duration        time.Duration
+	SchedulingDelay time.Duration // Time between scheduled arrival and actual execution start
+
+	currentStep      int
+	continuationChan chan *UserSession
 }
 
 func NewArrivalController(
 	jobGenParams JobGenerationParameters,
 	dim int,
 	seed int64,
+	continuationBufferSize int,
 ) *ArrivalController {
+	continuationChan := make(chan *UserSession, continuationBufferSize)
+
 	return &ArrivalController{
-		jobGenParams:   jobGenParams,
-		dim:            dim,
-		gen:            rand.New(rand.NewSource(seed)),
-		jobCounter:     0,
-		sessionCounter: 0,
+		jobGenParams:     jobGenParams,
+		dim:              dim,
+		gen:              rand.New(rand.NewSource(seed)),
+		continuationChan: continuationChan,
+		jobCounter:       0,
+		sessionCounter:   0,
 	}
 }
 
@@ -51,7 +103,7 @@ func (ac *ArrivalController) NextSleepDuration() time.Duration {
 	return time.Duration(interval * float64(time.Second))
 }
 
-// GenerateWorkload creates either a Job or UserSession based on jobProbability
+// GenerateWorkload creates either a Job or SessionQuery (first query of a session) based on jobProbability
 func (ac *ArrivalController) GenerateWorkload() Workload {
 	if ac.gen.Float64() < ac.jobGenParams.jobProbability {
 		return ac.generateJob()
@@ -71,8 +123,10 @@ func (ac *ArrivalController) generateSession() *UserSession {
 	maxLen := ac.jobGenParams.maxSessionLength
 	sessionLength := ac.gen.Intn(maxLen-minLen+1) + minLen
 	jobs := make([]Job, sessionLength)
+
 	for j := range sessionLength {
 		var query []float32
+		// The first query uses the same distribution as independent jobs, follow-up offsets use a different distribution
 		if j == 0 {
 			query = GenerateVector(ac.gen, ac.dim, ac.jobGenParams.workloadStdDev, ac.jobGenParams.workloadMean)
 		} else {
@@ -81,23 +135,20 @@ func (ac *ArrivalController) generateSession() *UserSession {
 		jobId := fmt.Sprintf("S-%d-%d", ac.sessionCounter, j)
 		jobs[j] = Job{Id: jobId, QueryVector: query}
 	}
+
 	session := &UserSession{
-		SessionId:   ac.sessionCounter,
-		jobs:        jobs,
-		currentStep: 0,
+		SessionId:        ac.sessionCounter,
+		Jobs:             jobs,
+		currentStep:      0,
+		continuationChan: ac.continuationChan,
 	}
 	ac.sessionCounter++
 	return session
 }
 
-type TimedWorkload struct {
-	Work          Workload
-	ScheduledTime time.Time // Captures the wait time until a worker was able to pick up the work
-}
-
 /**
-* ExecuteWorkload runs workload concurrently with Poisson-distributed arrivals.
-* It returns the executed Jobs and UserSessions to enable recall analysis
+* ExecuteWorkloadPoisson runs workloads concurrently with Poisson-distributed arrivals.
+* It returns the executed Jobs and UserSessions to enable recall analysis.
  */
 func ExecuteWorkloadPoisson(
 	ac *ArrivalController,
@@ -126,25 +177,37 @@ func ExecuteWorkloadPoisson(
 			defer wg.Done()
 			for timedWork := range workChan {
 				actualStart := time.Now()
-				// Scheduling delay
 				schedulingDelay := actualStart.Sub(timedWork.ScheduledTime)
 
-				result, err := timedWork.Work.Execute(ctx, c, collection, vecFieldName, dim, k, logger, schedulingDelay)
+				res, err := timedWork.Work.Execute(
+					ctx,
+					c,
+					collection,
+					vecFieldName,
+					dim,
+					k,
+					logger,
+					schedulingDelay,
+				)
 				if err != nil && err != context.Canceled { // Errors are expected on benchmark end
 					logger.Logf("Worker %d: error executing work: %v", workerId, err)
+					continue
+				}
+
+				if res == nil {
+					// Continuation enqueued, skip collecting result
+					continue
 				}
 
 				// Collect results
-				if result != nil {
-					mu.Lock()
-					switch r := result.(type) {
-					case *Job:
-						executedJobs = append(executedJobs, *r)
-					case *UserSession:
-						executedSessions = append(executedSessions, *r)
-					}
-					mu.Unlock()
+				mu.Lock()
+				switch r := res.(type) {
+				case *Job:
+					executedJobs = append(executedJobs, *r)
+				case *UserSession:
+					executedSessions = append(executedSessions, *r)
 				}
+				mu.Unlock()
 			}
 		}(i)
 	}
@@ -166,8 +229,15 @@ func ExecuteWorkloadPoisson(
 				return
 			}
 
-			// Generate and send workload
-			work := ac.GenerateWorkload()
+			// Prioritize continuations over new workloads
+			var work Workload
+			select {
+			case continuation := <-ac.continuationChan:
+				work = continuation
+			default:
+				work = ac.GenerateWorkload()
+			}
+
 			scheduledTime := time.Now()
 
 			select {
@@ -181,32 +251,9 @@ func ExecuteWorkloadPoisson(
 	// Wait for all workers to complete remaining work
 	wg.Wait()
 
+	// Note: ac.continuationChan may still have pending sessions that won't complete
 	logger.Logf("Executed %d jobs and %d sessions", len(executedJobs), len(executedSessions))
 	return executedJobs, executedSessions
-}
-
-// Workload is the interface for executable benchmark work units (i.e. Jobs and UserSessions).
-type Workload interface {
-	Execute(
-		ctx context.Context,
-		c *milvusclient.Client,
-		collection string,
-		vecFieldName string,
-		dim int,
-		k int,
-		logger *Logger,
-		schedulingDelay time.Duration,
-	) (Workload, error)
-}
-
-// Job is a single kNN search query
-type Job struct {
-	Id              string // Unique identifier (for independent jobs, this follows: "J-{index}")
-	QueryVector     Vector
-	ResultIds       []int64
-	Latency         time.Duration
-	StartTimestamp  time.Time
-	SchedulingDelay time.Duration // Time between scheduled arrival and actual execution start
 }
 
 // Execute performs the k-NN search for this job and records metrics.
@@ -220,7 +267,6 @@ func (j *Job) Execute(
 	logger *Logger,
 	schedulingDelay time.Duration,
 ) (Workload, error) {
-	// Check if context is cancelled before starting
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -253,23 +299,7 @@ func (j *Job) Execute(
 	return j, nil
 }
 
-/**
-* UserSession simulates a somewhat realistic user behavior with sequential, dependent queries.
-* Each session starts with a random query vector, then subsequent queries are based on the top result
-* from the previous query plus a small random offset to simulate an attention based vector drift.
-*
-* Job Ids within a session are formatted as "S-{sessionId}-{stepIndex}".
- */
-type UserSession struct {
-	SessionId       int
-	jobs            []Job // Queries in this session (initially only the offset vectors)
-	currentStep     int
-	StartTimestamp  time.Time
-	Latency         time.Duration // Total session duration
-	SchedulingDelay time.Duration // Time between scheduled arrival and actual execution start
-}
-
-// Execute runs all queries in the user session sequentiallym respecting context cancellation.
+// Execute runs a single session query and enqueues the next query if the session continues.
 func (us *UserSession) Execute(
 	ctx context.Context,
 	c *milvusclient.Client,
@@ -280,84 +310,94 @@ func (us *UserSession) Execute(
 	logger *Logger,
 	schedulingDelay time.Duration,
 ) (Workload, error) {
-	us.SchedulingDelay = schedulingDelay
-	start := time.Now()
-	us.StartTimestamp = start
-
-	for queryVector, hasNext := us.NextQuery(nil); hasNext; {
-		select {
-		case <-ctx.Done():
-			// Log partial session completion
-			us.Latency = time.Since(start)
-			logger.Logf("Session %d terminated early after %d/%d steps", us.SessionId, us.currentStep, len(us.jobs))
-			return us, ctx.Err()
-		default:
-		}
-
-		jobStart := time.Now()
-		searchRes, err := c.Search(ctx,
-			milvusclient.NewSearchOption(
-				collection,
-				k,
-				[]entity.Vector{entity.FloatVector(queryVector)},
-			).WithANNSField(vecFieldName).
-				WithOutputFields(vecFieldName),
-		)
-		if err != nil {
-			us.Latency = time.Since(start)
-			return us, err
-		}
-
-		// Record job timing (-1 because currentStep was incremented in NextQuery)
-		us.jobs[us.currentStep-1].Latency = time.Since(jobStart)
-		us.jobs[us.currentStep-1].StartTimestamp = jobStart
-
-		if len(searchRes) != 1 {
-			logger.Logf("Unexpected number of result sets: %d", len(searchRes))
-		}
-		for _, resultSet := range searchRes {
-			us.jobs[us.currentStep-1].ResultIds = resultSet.IDs.FieldData().GetScalars().GetLongData().Data
-			vectors := resultSet.GetColumn(vecFieldName)
-			if vectors == nil {
-				logger.Logf("No vector field '%s' in search result: %+v", vecFieldName, resultSet)
-				queryVector, hasNext = us.NextQuery(nil)
-				continue
-			}
-			// Don't ask why but this concatenates all the vectors so we must slice to get the first one
-			combinedVector := vectors.FieldData().GetVectors().GetFloatVector().Data
-			// TODO: prevent selecting the same vector every time
-			topResult := combinedVector[:dim]
-			queryVector, hasNext = us.NextQuery(topResult)
-		}
-
-		logger.LogJob(&us.jobs[us.currentStep-1], us.SessionId, us.currentStep-1)
+	select {
+	case <-ctx.Done():
+		us.Duration = time.Since(us.StartTimestamp)
+		logger.Logf("Session %d cancelled after %d of %d steps", us.SessionId, us.currentStep, len(us.Jobs))
+		return nil, ctx.Err()
+	default:
 	}
 
-	us.Latency = time.Since(start)
+	job := &us.Jobs[us.currentStep]
+	us.SchedulingDelay += schedulingDelay // Accumulate scheduling delays
+	if us.currentStep == 0 {
+		// For the first query, record session start time and scheduling delay
+		us.StartTimestamp = time.Now()
+	}
+
+	// Execute the k-NN search
+	jobStart := time.Now()
+	searchRes, err := c.Search(ctx,
+		milvusclient.NewSearchOption(
+			collection,
+			k,
+			[]entity.Vector{entity.FloatVector(job.QueryVector)},
+		).WithANNSField(vecFieldName).
+			WithOutputFields(vecFieldName), // Need vector field for computing next query
+	)
+
+	job.Latency = time.Since(jobStart)
+	job.StartTimestamp = jobStart
+	job.SchedulingDelay = schedulingDelay
+
+	if err != nil {
+		// On error, return partial session
+		us.Duration = time.Since(us.StartTimestamp)
+		return us, err
+	}
+
+	if len(searchRes) != 1 {
+		logger.Logf("Unexpected number of result sets: %d", len(searchRes))
+	}
+
+	var topResult Vector
+	for _, resultSet := range searchRes {
+		job.ResultIds = resultSet.IDs.FieldData().GetScalars().GetLongData().Data
+		vectors := resultSet.GetColumn(vecFieldName)
+		if vectors == nil {
+			logger.Logf("Session %d: No vector field '%s' in search result", us.SessionId, vecFieldName)
+			continue
+		}
+		// Don't ask why but this concatenates all the vectors so we must slice to get the first one
+		combinedVector := vectors.FieldData().GetVectors().GetFloatVector().Data
+		topResult = combinedVector[:dim]
+	}
+
+	logger.LogJob(job, us.SessionId, us.currentStep)
+
+	// Check if more queries remain in the session
+	if us.currentStep+1 < len(us.Jobs) {
+		if topResult == nil {
+			// Cannot compute next query without top result vector, end session early
+			logger.Logf("Session %d: No vector field '%s' in result, ending session early at step %d",
+				us.SessionId, vecFieldName, us.currentStep)
+			us.Duration = time.Since(us.StartTimestamp)
+			logger.LogSession(us)
+			return us, nil
+		}
+
+		us.currentStep++
+		// Compute next query vector based on last result + offset
+		offset := us.Jobs[us.currentStep].QueryVector
+		nextQuery := make(Vector, dim)
+		for i := range dim {
+			nextQuery[i] = topResult[i] + offset[i]
+		}
+		us.Jobs[us.currentStep].QueryVector = nextQuery
+
+		// Enqueue continuation
+		select {
+		case us.continuationChan <- us:
+			return nil, nil
+		case <-ctx.Done():
+			// Context cancelled, return partial session
+			us.Duration = time.Since(us.StartTimestamp)
+			return us, ctx.Err()
+		}
+	}
+
+	// Session complete
+	us.Duration = time.Since(us.StartTimestamp)
 	logger.LogSession(us)
 	return us, nil
-}
-
-/**
-* NextQuery computes and returns the next query vector for the session
-* based on the last result and the offset.
-* Returns (vector, true) if there's a next query, or (nil, false) if session is complete.
- */
-func (us *UserSession) NextQuery(lastResult Vector) (Vector, bool) {
-	if us.currentStep == 0 {
-		us.currentStep++
-		return us.jobs[0].QueryVector, true
-	}
-
-	// Subsequent queries - compute based on last result + offset
-	if us.currentStep < len(us.jobs) {
-		offset := us.jobs[us.currentStep].QueryVector
-		for i := range lastResult {
-			offset[i] += lastResult[i]
-		}
-		us.jobs[us.currentStep].QueryVector = offset
-		us.currentStep++
-		return offset, true
-	}
-	return nil, false
 }

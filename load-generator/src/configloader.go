@@ -12,7 +12,7 @@ import (
 * LoadIndexConfig reads index configuration in the following format:
 * M = 30
 * efConstruction = 360
-*/
+ */
 func LoadIndexConfig(configID int, config *Config) error {
 	filename := fmt.Sprintf("configs/index-%d.txt", configID)
 	file, err := os.Open(filename)
@@ -68,7 +68,7 @@ func LoadIndexConfig(configID int, config *Config) error {
 * LoadDimConfig reads dimensionality configuration in the following format:
 * dim = 50
 * dataFile = ./glove/glove-50.txt
-*/
+ */
 func LoadDimConfig(datasetID int, config *Config) error {
 	filename := fmt.Sprintf("configs/dim-%d.txt", datasetID)
 	file, err := os.Open(filename)
@@ -115,4 +115,3 @@ func LoadDimConfig(datasetID int, config *Config) error {
 
 	return nil
 }
-

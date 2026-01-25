@@ -1,15 +1,19 @@
 resource "google_compute_disk" "load_generator_disk" {
   name = "load-generator-disk"
-  size = 100
+  size = 50
+  type = "hyperdisk-balanced"
 }
 resource "google_compute_instance" "load_generator_vm" {
   name         = "load-generator"
-  machine_type = "e2-standard-2"
+  machine_type = "n4-custom-20-40960" # this is necessary for recall calculations
   tags         = ["load-generator"]
+  allow_stopping_for_update = true
 
   boot_disk {
     initialize_params {
       image = "ubuntu-os-cloud/ubuntu-2204-lts"
+      size  = 50
+      type = "hyperdisk-balanced"
     }
   }
 
@@ -37,6 +41,21 @@ resource "google_compute_instance" "load_generator_vm" {
     mkdir -p /opt/benchmark/glove
     cd /opt/benchmark
 
+    touch monitoring.sh
+    cat > monitoring.sh <<-'EOF'
+      #!/bin/bash
+      pid=$(pidof benchmark)
+      while true; do
+        ts=$(date +%s)
+        rss=$(grep VmRSS /proc/$pid/status | awk '{print $2}')
+        cpu=$(ps -p $pid -o %cpu --no-headers)
+        echo "$ts,$rss,$cpu" >> benchmark_metrics.csv
+        sleep 1
+      done
+    EOF
+    chmod +x monitoring.sh
+    echo "timestamp,rss,cpu" > benchmark_metrics.csv
+
     # Since we can't set env variables across sessions, we write the ip to file
     echo "export MILVUS_IP=${google_compute_instance.milvus_vm.network_interface[0].network_ip}" > env.sh
 
@@ -44,7 +63,8 @@ resource "google_compute_instance" "load_generator_vm" {
     GLOVE_DIR="/opt/benchmark/glove"
     mkdir -p $GLOVE_DIR
 
-    for dim in 50 100 200; do
+    # 200 dim takes really long, so download manually if needed
+    for dim in 100; do
       GLOVE_URL="https://nlp.stanford.edu/data/wordvecs/glove.2024.wikigiga.$${dim}d.zip"
       GLOVE_ZIP_FILE="glove-$${dim}.zip"
       curl -L $GLOVE_URL -o $GLOVE_ZIP_FILE
