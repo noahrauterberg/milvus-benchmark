@@ -78,8 +78,8 @@ var config Config = Config{
 		minSessionLength:  5,
 		maxSessionLength:  50,
 		targetQPS:         100.0,
-		benchmarkDuration: 5 * time.Minute,
-		jobProbability:    0.8,
+		benchmarkDuration: 30 * time.Minute,
+		jobProbability:    0.85,
 	},
 	indexParameters: ConstructionIndexParameters{
 		distanceMetric: "L2", // euclidean distance (constant)
