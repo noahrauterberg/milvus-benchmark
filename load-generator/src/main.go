@@ -195,7 +195,15 @@ func main() {
 
 	logger.Log("Benchmark completed successfully")
 
+	/* Cleanup */
+	logger.Log("Cleaning up: deleting collection and database...")
+	err = Cleanup(c, config.dbName, config.collection)
+	if err != nil {
+		logger.Log(err.Error())
+	}
+
 	/* Enhance Results by calculating recall */
+	logger.Log("Calculating recall...")
 	err = Collection(datasource, jobs, sessions)
 	if err != nil {
 		panic(err)
