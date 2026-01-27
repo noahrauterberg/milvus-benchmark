@@ -4,16 +4,16 @@ resource "google_compute_disk" "load_generator_disk" {
   type = "hyperdisk-balanced"
 }
 resource "google_compute_instance" "load_generator_vm" {
-  name         = "load-generator"
-  machine_type = "n4-custom-20-40960" # this is necessary for recall calculations
-  tags         = ["load-generator"]
+  name                      = "load-generator"
+  machine_type              = "n4-custom-20-40960" # this is necessary for recall calculations
+  tags                      = ["load-generator"]
   allow_stopping_for_update = true
 
   boot_disk {
     initialize_params {
       image = "ubuntu-os-cloud/ubuntu-2204-lts"
       size  = 50
-      type = "hyperdisk-balanced"
+      type  = "hyperdisk-balanced"
     }
   }
 
@@ -41,20 +41,22 @@ resource "google_compute_instance" "load_generator_vm" {
     mkdir -p /opt/benchmark/glove
     cd /opt/benchmark
 
-    touch monitoring.sh
+    # Create monitoring script using ps and /proc for process metrics
     cat > monitoring.sh <<-'EOF'
       #!/bin/bash
       pid=$(pidof benchmark)
+      total_mem=$(grep MemTotal /proc/meminfo | awk '{print $2}')
       while true; do
         ts=$(date +%s)
-        rss=$(grep VmRSS /proc/$pid/status | awk '{print $2}')
-        cpu=$(ps -p $pid -o %cpu --no-headers)
-        echo "$ts,$rss,$cpu" >> benchmark_metrics.csv
+        cpu=$(ps -p $pid -o %cpu --no-headers | awk -v n=$(nproc) '{printf "%.2f%%", $1 / n}')
+        mem_used=$(grep VmRSS /proc/$pid/status | awk '{print $2}')
+        mem_perc=$(awk -v used="$mem_used" -v total="$total_mem" 'BEGIN {printf "%.2f%%", used / total * 100}')
+        echo "$ts,$cpu,$mem_used,$mem_perc" >> benchmark-metrics.csv
         sleep 1
       done
     EOF
     chmod +x monitoring.sh
-    echo "timestamp,rss,cpu" > benchmark_metrics.csv
+    echo "timestamp,cpu,mem_used,mem_perc" > benchmark-metrics.csv
 
     # Since we can't set env variables across sessions, we write the ip to file
     echo "export MILVUS_IP=${google_compute_instance.milvus_vm.network_interface[0].network_ip}" > env.sh
@@ -81,4 +83,3 @@ resource "google_compute_instance" "load_generator_vm" {
 
   depends_on = [google_compute_instance.milvus_vm]
 }
-
