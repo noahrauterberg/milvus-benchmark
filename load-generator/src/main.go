@@ -86,29 +86,37 @@ var config Config = Config{
 	},
 }
 
-// validDatasetIds defines the allowed dataset configuration IDs
 var validDatasetIds = map[int]bool{50: true, 100: true, 200: true}
 
-// parseArgs parses and validates CLI arguments for config ID and dataset ID
-func parseArgs() (configId int, dimId int, err error) {
-	if len(os.Args) != 3 {
-		return 0, 0, fmt.Errorf("usage: %s <config_id> <dataset_id>\n  config_id:  index configuration number (1-3)\n  dataset_id: dataset dimensionality (50, 100, 200)", os.Args[0])
+func parseArgs() (configId int, dimId int, recallAfterBenchmark bool, err error) {
+	if len(os.Args) < 3 || len(os.Args) > 4 {
+		return 0, 0, true, fmt.Errorf(`usage: %s <config_id> <dataset_id> <offline_recall>
+			config_id:  index configuration number (1-3)
+			dataset_id: dataset dimensionality (50, 100, 200)
+			Optional: recall_after_benchmark (true/false) whether to calculate recall directly after benchmark execution (defaults to true)`,
+			os.Args[0])
 	}
 
 	configId, err = strconv.Atoi(os.Args[1])
 	if err != nil || configId < 1 || configId > 3 {
-		return 0, 0, fmt.Errorf("invalid config_id: must be a number between 1 and 3")
+		return 0, 0, true, fmt.Errorf("invalid config_id: must be a number between 1 and 3")
 	}
 	dimId, err = strconv.Atoi(os.Args[2])
 	if err != nil || !validDatasetIds[dimId] {
-		return 0, 0, fmt.Errorf("invalid dimensionality: must be one of [50, 100, 200]")
+		return 0, 0, true, fmt.Errorf("invalid dimensionality: must be one of [50, 100, 200]")
 	}
-	return configId, dimId, nil
+
+	recallAfterBenchmark, err = strconv.ParseBool(os.Args[3])
+	if err != nil {
+		recallAfterBenchmark = true // default to true if not provided or invalid
+	}
+
+	return
 }
 
 func main() {
 	/* Parse CLI arguments and load configurations */
-	configId, dimId, err := parseArgs()
+	configId, dimId, recallAfterBenchmark, err := parseArgs()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -203,11 +211,19 @@ func main() {
 	}
 
 	/* Enhance Results by calculating recall */
+	if (recallAfterBenchmark) {
 	logger.Log("Calculating recall...")
-	err = Collection(datasource, jobs, sessions)
-	if err != nil {
-		panic(err)
+		err = Collection(datasource, jobs, sessions)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		logger.Log("Saving jobs and sessions in gob format for offline recall calculation...")
+		err = logger.LogJobsAndSessionsGob(jobs, sessions)
+		if err != nil {
+			panic(err)
+		}
 	}
 
-	logger.Log("Results collected and logged successfully")
+	logger.Log("Benchmark finished.")
 }

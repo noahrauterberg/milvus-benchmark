@@ -143,6 +143,23 @@ func (l *Logger) LogDataRows(data []DataRow) error {
 	return err
 }
 
+func (l *Logger) LogJobsAndSessionsGob(jobs []Job, sessions []UserSession) error {
+	gobFile, err := os.Create(outputPath("jobs-sessions.gob"))
+	if err != nil {
+		return err
+	}
+
+	encoder := gob.NewEncoder(gobFile)
+	err = encoder.Encode(struct {
+		Jobs     []Job
+		Sessions []UserSession
+	}{
+		Jobs:     jobs,
+		Sessions: sessions,
+	})
+	return err
+}
+
 func (l *Logger) LogEnhancedResults(results []EnhancedJobResult) error {
 	return parquet.WriteFile(outputPath("enhanced-results.parquet"), results)
 }
