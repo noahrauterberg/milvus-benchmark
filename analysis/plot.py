@@ -50,6 +50,7 @@ def plot_index_construction_times_by_config(run_data: pd.DataFrame):
             x="config_id",
             y="index_construction_time",
             marker=DIM_MARKERS[dim],
+            color=DIM_COLORS[dim],
             s=100,
             label=f"dim={dim}",
             ax=ax,
@@ -80,7 +81,7 @@ def plot_index_construction_times_by_config(run_data: pd.DataFrame):
     ax.grid(True, alpha=0.3, which="both")
 
     plt.tight_layout()
-    output_path = OUTPUT_DIR / "index-time-trend-by-dim.pdf"
+    output_path = OUTPUT_DIR / "index-time-trend-by-config.pdf"
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
     info(f"Saved: {output_path}")
@@ -116,7 +117,7 @@ def plot_index_construction_times_by_dim(run_data: pd.DataFrame):
     ax.set_yscale("log")
     ax.set_xlabel("Dimensionality")
     ax.set_ylabel("Index Construction Time (seconds, log scale)")
-    ax.set_title("Index Construction Time by Configuration")
+    ax.set_title("Index Construction Time by Dimensionality")
     ax.set_xticks([50, 100, 200])
     ax.legend(title="Configuration")
     ax.grid(True, alpha=0.3, which="both")
@@ -209,22 +210,22 @@ def plot_job_vs_session_recall_cdf(df: pd.DataFrame):
                 session_data["Recall"],
                 label=f"Session Recall\n(n={len(session_data)})",
                 stat="proportion",
-                color="darkorange",
+                color="darkviolet",
         )
-        add_percentile_lines(ax, session_data["Recall"], DEFAULT_PERCENTILES, "darkorange")
+        add_percentile_lines(ax, session_data["Recall"], DEFAULT_PERCENTILES, "darkviolet")
 
         ax = sns.ecdfplot(
                 simple_job_data["Recall"],
                 label=f"Job Recall\n(n={len(simple_job_data)})",
                 stat="proportion",
-                color="steelblue",
+                color="mediumturquoise",
         )
-        add_percentile_lines(ax, session_data["Recall"], DEFAULT_PERCENTILES, "steelblue")
+        add_percentile_lines(ax, session_data["Recall"], DEFAULT_PERCENTILES, "mediumturquoise")
 
         plt.xlabel("Recall")
         plt.ylabel("Proportion")
         plt.title(f"Recall CDF for Run {run_id}")
-        plt.legend()
+        plt.legend(loc="lower right")
         plt.grid(True, alpha=0.3)
 
         output_path = OUTPUT_DIR / f"recall-cdf-run-{run_id}.pdf"
@@ -250,23 +251,25 @@ def multiplot_job_vs_session_recall_cdf(df: pd.DataFrame):
             sns.ecdfplot(
                 data=session_data["Recall"],
                 stat="proportion",
-                color="darkorange",
+                color="darkviolet",
                 ax=ax,
                 label="Session Recall",
             )
-            add_percentile_lines(ax, session_data["Recall"], DEFAULT_PERCENTILES, "darkorange")
 
             sns.ecdfplot(
                 data=simple_job_data["Recall"],
                 stat="proportion",
-                color="steelblue",
+                color="mediumturquoise",
                 ax=ax,
                 label="Job Recall",
             )
-            add_percentile_lines(ax, simple_job_data["Recall"], DEFAULT_PERCENTILES, "steelblue")
 
             ax.set_title(f"Config {config_id}, Dim {dim}")
             ax.grid(True, alpha=0.3)
+
+    # Add a single legend for the entire figure
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper right", bbox_to_anchor=(0.99, 0.99))
 
     fig.suptitle("Recall CDF by Configuration and Dimensionality", y=1.02)
     plt.tight_layout()
@@ -294,25 +297,22 @@ def plot_latency_cdf(df: pd.DataFrame):
                 stat="proportion",
                 color=CONFIG_COLORS[config_id],
         )
-        add_percentile_lines(ax, run_data["latency_ms"], DEFAULT_PERCENTILES, CONFIG_COLORS[config_id])
 
         # Sessions
         ax = sns.ecdfplot(
                 session_data["latency_ms"],
                 label=f"Session Latency CDF\n(n={len(session_data)})",
                 stat="proportion",
-                color="darkorange",
+                color="darkviolet",
         )
-        add_percentile_lines(ax, session_data["latency_ms"], DEFAULT_PERCENTILES, "darkorange")
 
         # Simple Jobs
         ax = sns.ecdfplot(
                 simple_job_data["latency_ms"],
                 label=f"Job Latency CDF\n(n={len(simple_job_data)})",
                 stat="proportion",
-                color="steelblue",
+                color="mediumturquoise",
         )
-        add_percentile_lines(ax, simple_job_data["latency_ms"], DEFAULT_PERCENTILES, "steelblue")
 
         plt.xlabel("Latency (ms)")
         plt.ylabel("Proportion")
@@ -347,27 +347,24 @@ def multiplot_latency_cdf(df: pd.DataFrame):
                 ax=ax,
                 label="Overall Latency",
             )
-            add_percentile_lines(ax, run_data["latency_ms"], DEFAULT_PERCENTILES, CONFIG_COLORS[config_id])
 
             # Sessions
             sns.ecdfplot(
                 data=session_data["latency_ms"],
                 label=f"Session Latency CDF\n(n={len(session_data)})",
                 stat="proportion",
-                color="darkorange",
+                color="darkviolet",
                 ax=ax,
             )
-            add_percentile_lines(ax, session_data["latency_ms"], DEFAULT_PERCENTILES, "darkorange")
 
             # Simple Jobs
             sns.ecdfplot(
                 data=simple_job_data["latency_ms"],
                 label=f"Job Latency CDF\n(n={len(simple_job_data)})",
                 stat="proportion",
-                color="steelblue",
+                color="mediumturquoise",
                 ax=ax,
             )
-            add_percentile_lines(ax, simple_job_data["latency_ms"], DEFAULT_PERCENTILES, "steelblue")
 
             ax.set_title(f"Config {config_id}, Dim {dim}")
             ax.grid(True, alpha=0.3)
