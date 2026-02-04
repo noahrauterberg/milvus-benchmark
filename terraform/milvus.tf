@@ -1,4 +1,6 @@
 resource "google_compute_instance" "milvus_vm" {
+  count                    = var.deploy_offline_recall_instance ? 0 : 1
+
   name                      = "milvus-instance"
   machine_type              = "n2-standard-8"
   tags                      = ["milvus"]

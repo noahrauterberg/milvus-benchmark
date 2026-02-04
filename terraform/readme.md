@@ -1,112 +1,70 @@
 # Terraform Infrastructure
 
-This Terraform configuration provisions the necessary infrastructure on Google Cloud Platform (GCP) to benchmark perform the Milvus Benchmark.
+This Terraform configuration provisions the necessary infrastructure on the Google Cloud Platform (GCP) to perform the Milvus Benchmark.
 It automates the deployment of VM instances, disk attachments, monitoring, and network firewall rules.
 
----
-
-## 2. Requirements
-- **Tools:**
-  - [Terraform](https://www.terraform.io/downloads.html) `1.5.7` or newer.
-  - [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) authenticated to a valid GCP project.
-- **Permissions:**
-  - The ability to create compute instances, disks, and firewall rules in the target GCP project.
-
----
-
-## 3. File/Directory Structure Overview
+## File/Directory Structure Overview
 
 The Terraform configuration includes the following files:
 
-- **`load-generator.tf`:** Provisions a load generator instance with:
+- `load-generator.tf`: Provisions a load generator instance with:
   - A persistent disk.
-  - Inline startup script to install dependencies, monitoring, and the benchmark application.
-- **`milvus.tf`:** Sets up a Milvus database VM with SSD storage and Docker support.
-- **`outputs.tf`:** Provides the external and internal IP addresses of the VM instances.
-- **`network.tf`:** Configures firewall rules to allow communication between the VMs.
-- **`provider.tf`:** Sets the Google Cloud provider and project configurations.
-- **`variables.tf`:** Defines input variables for project-specific deployment settings.
-- **`terraform.tf`:** Specifies required Terraform and provider versions.
+  - Startup script to install dependencies, monitoring, and the benchmark application.
+- `milvus.tf`: Sets up a Milvus instance with:
+  - A persistent disk.
+  - Startup script to install dependencies, monitoring, and start the Milvus standalone server.
+- `offline-recall.tf`: Configures a high compute VM instance for offline recall tasks
+- `outputs.tf`: Provides the external and internal IP addresses of the VM instances.
+- `network.tf`: Configures firewall rules to allow communication between the VMs.
+- `provider.tf`: Sets the Google Cloud provider and project configurations.
+- `variables.tf`: Defines input variables for project-specific deployment settings.
+- `terraform.tf`: Specifies required Terraform and provider versions.
 
----
-
-## 4. Configuration and Variables
+## Configuration and Variables
 
 The infrastructure supports the following input variables:
 
-- **`project_id`** *(required)*: The GCP project where resources will be created.
-- **`region`** *(required)*: GCP region for deploying resources (e.g., `us-central1`).
-- **`zone`** *(required)*: GCP zone for deploying resources (e.g., `us-central1-a`).
-- **`load_generator_cidr`** *(optional)*: The IP address range for the load generator. Default is `0.0.0.0/0`.
+- `project_id`: The GCP project where resources will be created.
+- `region`: GCP region for deploying resources.
+- `zone`: GCP zone for deploying resources.
+- `deploy_offline_recall_instance`: Boolean to determine if the offline recall instance should be deployed (defaults to `false`).
 
-Define these variables in a `variables.tfvars` file like so:
-
+Example `variables.tfvars` file:
 ```hcl
-project_id = "your-gcp-project-id"
-region     = "us-central1"
-zone       = "us-central1-a"
+project_id = "gcp-project-id"
+region     = "europe-west4"
+zone       = "europe-west4a"
 ```
 
----
+## Managing Resources
 
-## 5. Deploying Resources
-
-### Steps to Deploy:
-1. **Initialize Terraform:**
-   ```bash
-   terraform init
-   ```
-
-2. **Validate Configuration:**
-   ```bash
-   terraform validate
-   ```
-
-3. **Plan Deployment:**
-   ```bash
-   terraform plan -var-file="variables.tfvars"
-   ```
-
-4. **Apply Deployment:**
-   ```bash
-   terraform apply -auto-approve -var-file="variables.tfvars"
-   ```
-
----
-
-## 6. Destroying Infrastructure
-
-To clean up all resources created by this configuration:
+The infrastructure may be managed using standard Terraform commands, i.e.:
 
 ```bash
-terraform destroy -auto-approve -var-file="variables.tfvars"
+terraform init
+terraform plan -var-file=variables.tfvars -out <plan-file>
+terraform apply -auto-approve <plan-file>
 ```
 
----
+For ease of use, a `Makefile` is provided with the following targets:
 
-## 7. Outputs
+- `apply`: Applies the Terraform configuration with auto-approval.
+- `destroy`: Destroys all resources created by the configuration (also with auto-approval).
+
+## Outputs
 
 The following output variables are provided after successful deployment:
 
-- **`milvus_internal_ip`:** Internal IP of the Milvus instance.
-- **`milvus_external_ip`:** External IP of the Milvus instance.
-- **`load_generator_internal_ip`:** Internal IP of the load generator instance.
-- **`load_generator_external_ip`:** External IP of the load generator instance.
+- `milvus_internal_ip`: Internal IP of the Milvus instance.
+- `milvus_external_ip`: External IP of the Milvus instance.
+- `load_generator_internal_ip`: Internal IP of the load generator instance.
+- `load_generator_external_ip`: External IP of the load generator instance.
 
----
+## Known Issues and Hints
 
-## 8. Best Practices
+When deploying the benchmark, we noticed that downloading the GloVe dataset for 200 dimensions is really slow and may at times fail due to network issues.
+For that reason, consider removing certain dimensionalities from the startup script in `load-generator.tf` and only download the required dimensionalities.
 
-### State Management
-- Use a remote backend to store state files securely (e.g., a GCS bucket).
+Further, the `load-generator.tf` startup script does fail when trying to build the load-generator from source due to environment variables.
+As of now, this is not fixed and we opted to manually re-run the build commands after SSHing into the load-generator instance.
 
-### Avoid Hardcoding
-- Leverage `variables.tf` to parameterize configurations and avoid hardcoding project-specific details.
-
-### Security
-- Ensure sensitive information (e.g., state files) is not committed to source control.
-- If possible, restrict the `load_generator_cidr` to a more secure range than `0.0.0.0/0`.
-
----
-
-This Terraform configuration simplifies the setup of benchmarking infrastructure for Milvus. Follow the best practices for secure and reliable deployment.

@@ -106,6 +106,9 @@ func parseArgs() (configId int, dimId int, recallAfterBenchmark bool, err error)
 		return 0, 0, true, fmt.Errorf("invalid dimensionality: must be one of [50, 100, 200]")
 	}
 
+	if (len(os.Args) < 4) {
+		return configId, dimId, true, nil // default to true if not provided
+	}
 	recallAfterBenchmark, err = strconv.ParseBool(os.Args[3])
 	if err != nil {
 		recallAfterBenchmark = true // default to true if not provided or invalid

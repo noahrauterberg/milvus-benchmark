@@ -18,3 +18,9 @@ variable "load_generator_cidr" {
   type        = string
   default     = "0.0.0.0/0"
 }
+
+variable "deploy_offline_recall_instance" {
+  description = "Whether to deploy an offline recall instance"
+  type        = bool
+  default     = false
+}

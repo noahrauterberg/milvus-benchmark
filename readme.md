@@ -70,9 +70,12 @@ Since the benchmark implements a partly open arrival model, two types of workloa
 * _Simple Job_: Independent queries
 * _Simulated User Session_: Sequential queries, executed one after another where each follow-up query is based on the previous top result, offset by a small random vector to simulate an attention-based change to the previous output.
 
+For more details, please refer to the [Execution Documentation](./load-generator/readme.md) in the `load-generator` directory.
+
 ## Collection/Cleanup
 
-After all queries have been executed, the response accuracy is calculated by calculating the exact nearest neighbors for each query vector.
+After all queries have been executed, the database is dropped to enable a subsequent benchmark execution.
+If specified, the response accuracy is calculated by computing the exact nearest neighbors for each query vector.
 Note that for user sessions, this can only be done after all queries have completed since the query vectors are not know before the previous query has been answered.
 Finally, the results are written to a parquet file for later analysis.
 

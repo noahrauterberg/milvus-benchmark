@@ -4,8 +4,10 @@ resource "google_compute_disk" "load_generator_disk" {
   type = "hyperdisk-balanced"
 }
 resource "google_compute_instance" "load_generator_vm" {
+  count                    = var.deploy_offline_recall_instance ? 0 : 1
+
   name                      = "load-generator"
-  machine_type              = "n4-custom-20-40960" # this is necessary for recall calculations
+  machine_type              = "n4-highcpu-8"
   tags                      = ["load-generator"]
   allow_stopping_for_update = true
 
@@ -59,14 +61,14 @@ resource "google_compute_instance" "load_generator_vm" {
     echo "timestamp,cpu,mem_used,mem_perc" > benchmark-metrics.csv
 
     # Since we can't set env variables across sessions, we write the ip to file
-    echo "export MILVUS_IP=${google_compute_instance.milvus_vm.network_interface[0].network_ip}" > env.sh
+    echo "export MILVUS_IP=${google_compute_instance.milvus_vm[0].network_interface[0].network_ip}" > env.sh
 
     # Download GloVe
     GLOVE_DIR="/opt/benchmark/glove"
     mkdir -p $GLOVE_DIR
 
-    # 200 dim takes really long, so download manually if needed
-    for dim in 100; do
+    # 200 dim is a large file so really consider whether you need it
+    for dim in 50 100 200; do
       GLOVE_URL="https://nlp.stanford.edu/data/wordvecs/glove.2024.wikigiga.$${dim}d.zip"
       GLOVE_ZIP_FILE="glove-$${dim}.zip"
       curl -L $GLOVE_URL -o $GLOVE_ZIP_FILE
