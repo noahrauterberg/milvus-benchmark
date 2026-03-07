@@ -129,11 +129,24 @@ def plot_index_construction_times_by_dim(run_data: pd.DataFrame):
     info(f"Saved: {output_path}")
 
 
-def cost_benefit(run_data: pd.DataFrame):
+def cost_benefit(run_data: pd.DataFrame, recall_aggregation: str = "mean"):
+    aggregation_func = None
+    match recall_aggregation:
+        case "mean": aggregation_func = lambda x: x.mean()
+        case "median": aggregation_func = lambda x: x.median()
+        case "p1": aggregation_func = lambda x: x.quantile(0.01)
+        case "p5": aggregation_func = lambda x: x.quantile(0.05)
+        case "p10": aggregation_func = lambda x: x.quantile(0.10)
+        case "p50": aggregation_func = lambda x: x.quantile(0.50)
+        case "p95": aggregation_func = lambda x: x.quantile(0.95)
+        case "p97": aggregation_func = lambda x: x.quantile(0.97)
+        case "p99": aggregation_func = lambda x: x.quantile(0.99)
+        case _: aggregation_func = lambda x: x.mean()
+
     # Add an averaged point for each config/dim
     avg_times = run_data.groupby(["config_id", "dim"]).agg({
         "index_construction_time": "mean",
-        "Recall": "mean",
+        "Recall": aggregation_func,
         "config_label": "first",
     }).reset_index()
 
@@ -170,7 +183,7 @@ def cost_benefit(run_data: pd.DataFrame):
 
     ax.set_xscale("log")
     ax.set_xlabel("Index Construction Time (seconds, log scale)")
-    ax.set_ylabel("Recall")
+    ax.set_ylabel(f"Recall ({recall_aggregation})")
     ax.set_title("Cost-Benefit Analysis of Index Configurations\n(Small markers: individual runs, Large markers: averages)")
     ax.grid(True, alpha=0.3, which="both")
 
@@ -190,7 +203,7 @@ def cost_benefit(run_data: pd.DataFrame):
     ax.legend(handles=config_handles, title="Configuration", loc="lower left")
 
     plt.tight_layout()
-    output_path = OUTPUT_DIR / "cost-benefit-analysis.pdf"
+    output_path = OUTPUT_DIR / f"cost-benefit-analysis-{recall_aggregation}.pdf"
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
     info(f"Saved: {output_path}")
@@ -492,6 +505,82 @@ def plot_latency_vs_recall_hexbin(df: pd.DataFrame):
         info(f"Saved: {output_path}")
 
 
+def plot_session_recall_evolution_per_run(df: pd.DataFrame, output_dir: Path):
+    # Plot recall evolution over the course of sessions.
+    runs = df["run_id"].unique()
+    
+    for run_id in sorted(runs):
+        run_data = df[df["run_id"] == run_id]
+        config_id = run_data["config_id"].iloc[0]
+        dim = run_data["dim"].iloc[0]
+        run_num = run_data["run_number"].iloc[0]
+        
+        # Filter for session queries
+        session_data = run_data[run_data["is_session"]].copy()
+        
+        if len(session_data) == 0:
+            info(f"No session data for {run_id}, skipping recall evolution plot")
+            continue
+        
+        # Get unique sessions
+        sessions = session_data["session_id"].unique()
+        n_sessions = len(sessions)
+        
+        fig, ax = plt.subplots(figsize=(12, 7))
+        
+        step_recalls = {}
+        
+        for session_id in sessions:
+            sess = session_data[session_data["session_id"] == session_id].sort_values("step")
+            steps = sess["step"].values
+            recalls = sess["Recall"].values
+            
+            # Collect for aggregation
+            for step, recall in zip(steps, recalls):
+                if step not in step_recalls:
+                    step_recalls[step] = []
+                step_recalls[step].append(recall)
+        
+        steps_sorted = sorted(step_recalls.keys())
+        mean_recalls = [np.mean(step_recalls[s]) for s in steps_sorted]
+        p25_recalls = [np.percentile(step_recalls[s], 25) for s in steps_sorted]
+        p75_recalls = [np.percentile(step_recalls[s], 75) for s in steps_sorted]
+        
+        # Confidence band (25th-75th percentile)
+        ax.fill_between(steps_sorted, p25_recalls, p75_recalls, 
+                       color=CONFIG_COLORS[config_id], alpha=0.3, label="P25-P75 range")
+        
+        # Mean line
+        ax.plot(steps_sorted, mean_recalls, color=CONFIG_COLORS[config_id], 
+               linewidth=2.5, label="Mean recall", marker="o", markersize=4)
+        
+        ax.set_xlabel("Step within Session")
+        ax.set_ylabel("Recall")
+        ax.set_title(f"Recall Evolution Over Sessions\n"
+                    f"Config {config_id} dim={dim}, {run_num}\n"
+                    f"{n_sessions:,} sessions, {len(session_data):,} queries")
+        ax.legend(loc="lower right")
+        ax.grid(True, alpha=0.3)
+        
+        # y-axis  padding
+        y_min = min(min(p25_recalls), 0) - 0.05
+        y_max = min(max(p75_recalls) + 0.1, 1.05)
+        ax.set_ylim(y_min, y_max)
+        
+        # Add summary stats
+        overall_mean = session_data["Recall"].mean()
+        overall_std = session_data["Recall"].std()
+        ax.text(0.02, 0.02, f"Overall: mean={overall_mean:.3f}, std={overall_std:.3f}",
+               transform=ax.transAxes, fontsize=9, va="bottom",
+               bbox=dict(boxstyle="round", facecolor="white", alpha=0.9))
+        
+        plt.tight_layout()
+        output_path = output_dir / f"session_recall_evolution_{run_id}.pdf"
+        fig.savefig(output_path, bbox_inches="tight")
+        plt.close(fig)
+        info(f"Saved: {output_path}")
+
+
 def main():
     df = load_and_preprocess(DATA_BASE_PATH)
     # Group by run to get individual run data points
@@ -503,12 +592,20 @@ def main():
 
     plot_index_construction_times_by_config(run_data)
     plot_index_construction_times_by_dim(run_data)
-    cost_benefit(run_data)
-
+    cost_benefit(run_data, recall_aggregation="mean")
+    cost_benefit(run_data, recall_aggregation="median")
+    cost_benefit(run_data, recall_aggregation="p1")
+    cost_benefit(run_data, recall_aggregation="p5")
+    cost_benefit(run_data, recall_aggregation="p10")
+    cost_benefit(run_data, recall_aggregation="p50")
+    cost_benefit(run_data, recall_aggregation="p95")
+    cost_benefit(run_data, recall_aggregation="p97")
+    cost_benefit(run_data, recall_aggregation="p99")
     plot_job_vs_session_recall_cdf(df)
     multiplot_job_vs_session_recall_cdf(df)
     plot_latency_cdf(df)
     multiplot_latency_cdf(df)
+    plot_session_recall_evolution_per_run(df, OUTPUT_DIR)
 
 if __name__ == "__main__":
     main()

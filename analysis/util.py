@@ -24,6 +24,16 @@ CONFIG_PARAMS = {
     3: {"M": 60, "efConstruction": 720},
 }
 
+# Color palette for configurations
+CONFIG_COLORS = {
+    1: "#1f77b4",  # blue
+    2: "#ff7f0e",  # orange
+    3: "#2ca02c",  # green
+}
+
+# Default output directory
+OUTPUT_DIR = "./output"
+
 LOG_LEVEL = 1  # 0: debug, 1: info, 2: error
 
 # Markers for dimensionalities
@@ -314,7 +324,6 @@ def aggregated_summary(df: pd.DataFrame) -> pd.DataFrame:
     return summary.reset_index()
 
 
-
 def add_percentile_lines(ax, series: pd.Series, percentiles: list[int], color: str = "gray"):
     quantiles = series.quantile(percentiles)
     for idx, q in enumerate(quantiles):
@@ -327,3 +336,85 @@ def add_percentile_lines(ax, series: pd.Series, percentiles: list[int], color: s
                 color=color,
                 bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, pad=0.5),
         )
+
+
+def explore_sessions(df: pd.DataFrame, 
+                     latency_threshold_pct: float = 0.1,
+                     recall_threshold: float = 0.02) -> bool:
+    """
+    Determine if session-specific analysis reveals interesting patterns.
+    
+    Args:
+        df: DataFrame with is_session column
+        latency_threshold_pct: Minimum relative latency difference to be interesting
+        recall_threshold: Minimum absolute recall difference to be interesting
+    
+    Returns:
+        True if sessions show meaningfully different behavior from single jobs
+    """
+    if 'is_session' not in df.columns:
+        return False
+    
+    sessions = df[df['is_session']]
+    jobs = df[~df['is_session']]
+    
+    if len(sessions) == 0 or len(jobs) == 0:
+        return False
+    
+    # Ensure units are converted
+    latency_col = 'latency_ms' if 'latency_ms' in df.columns else 'Latency'
+    
+    # Test 1: Latency difference
+    session_latency = sessions[latency_col].median()
+    job_latency = jobs[latency_col].median()
+    latency_diff = abs(session_latency - job_latency) / job_latency
+    
+    # Test 2: Recall difference
+    recall_diff = abs(sessions['Recall'].mean() - jobs['Recall'].mean())
+    
+    is_interesting = latency_diff > latency_threshold_pct or recall_diff > recall_threshold
+    
+    if is_interesting:
+        print(f"\nSession analysis is interesting:")
+        print(f"  Latency diff: {latency_diff:.1%} (threshold: {latency_threshold_pct:.1%})")
+        print(f"  Recall diff: {recall_diff:.3f} (threshold: {recall_threshold:.3f})")
+    else:
+        print(f"\nSession behavior similar to single jobs:")
+        print(f"  Latency diff: {latency_diff:.1%}")
+        print(f"  Recall diff: {recall_diff:.3f}")
+    
+    return is_interesting
+
+
+def pareto_frontier_mask(points: np.ndarray, minimize_x: bool = True, maximize_y: bool = True) -> np.ndarray:
+    """
+    Find the Pareto frontier for a set of 2D points.
+
+    Args:
+        points: Nx2 array of (x, y) points
+        minimize_x: Whether to minimize x (True) or maximize x (False)
+        maximize_y: Whether to maximize y (True) or minimize y (False)
+
+    Returns:
+        Boolean mask indicating Pareto-optimal points
+    """
+    n = len(points)
+    is_pareto = np.ones(n, dtype=bool)
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+
+            # Check if j dominates i
+            x_better = (points[j, 0] <= points[i, 0]) if minimize_x else (points[j, 0] >= points[i, 0])
+            y_better = (points[j, 1] >= points[i, 1]) if maximize_y else (points[j, 1] <= points[i, 1])
+
+            x_strict = (points[j, 0] < points[i, 0]) if minimize_x else (points[j, 0] > points[i, 0])
+            y_strict = (points[j, 1] > points[i, 1]) if maximize_y else (points[j, 1] < points[i, 1])
+
+            if x_better and y_better and (x_strict or y_strict):
+                is_pareto[i] = False
+                break
+
+    return is_pareto

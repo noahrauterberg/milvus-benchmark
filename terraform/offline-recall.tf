@@ -7,7 +7,7 @@ resource "google_compute_instance" "offlince_recall_instance" {
   boot_disk {
     initialize_params {
       image = "ubuntu-os-cloud/ubuntu-2204-lts"
-      size  = 50
+      size  = 75
       type  = "hyperdisk-balanced"
     }
   }
@@ -21,5 +21,17 @@ resource "google_compute_instance" "offlince_recall_instance" {
     network = "default"
     access_config {} # no config for auto-config
   }
+
+  metadata_startup_script = <<-EOT
+    #!/bin/bash
+    set -euo pipefail
+
+    # Install dependencies
+    apt-get update
+    sudo apt-get upgrade -y
+    sudo add-apt-repository -y ppa:longsleep/golang-backports
+    sudo apt-get install -y golang-go unzip git
+    git clone https://github.com/noahrauterberg/milvus-benchmark.git /opt/benchmark/repo
+  EOT
 }
 
